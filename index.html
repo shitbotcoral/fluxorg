@@ -348,6 +348,13 @@
             }
             historyStack.push(state);
             historyIndex++;
+
+            // Salva no navegador pra não perder ao fechar a janela
+            try {
+                localStorage.setItem('fluxorg_board_state', JSON.stringify(state));
+            } catch (e) {
+                console.warn("Espaço no navegador cheio. (Muitas imagens pesadas podem causar isso)");
+            }
         }
 
         function loadState(state) {
@@ -1180,8 +1187,24 @@
 
         // --- Init ---
         updateTransform();
-        createItem('post-it', getCenterSpawnPos().x, getCenterSpawnPos().y, null, true);
-        saveState(); 
+        
+        // Puxa o que tava salvo antes de abrir o quadro
+        const savedData = localStorage.getItem('fluxorg_board_state');
+        if (savedData) {
+            try {
+                const parsedState = JSON.parse(savedData);
+                loadState(parsedState);
+                historyStack.push(parsedState);
+                historyIndex = 0;
+            } catch (e) {
+                console.error("Erro ao carregar o quadro salvo", e);
+                createItem('post-it', getCenterSpawnPos().x, getCenterSpawnPos().y, null, true);
+                saveState();
+            }
+        } else {
+            createItem('post-it', getCenterSpawnPos().x, getCenterSpawnPos().y, null, true);
+            saveState(); 
+        }
 
     </script>
 </body>
