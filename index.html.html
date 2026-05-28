@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLUXORG</title>
+    
+    <!-- Ícone na aba do navegador -->
+    <link rel="icon" href="logofluxorg.png" type="image/png">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Biblioteca para exportar o quadro como imagem -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #f8fafc; font-family: sans-serif; transition: background-color 0.3s; }
+        
+        #viewport {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+            background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        
+        body.pan-mode #viewport { cursor: grab; }
+        body.pan-mode #viewport:active { cursor: grabbing; }
+
+        #canvas {
+            position: absolute;
+            transform-origin: 0 0;
+            width: 0;
+            height: 0;
+            user-select: none; 
+        }
+
+        #svgLayer {
+            position: absolute;
+            top: 0; left: 0;
+            overflow: visible;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Estilo base dos itens */
+        .canvas-item {
+            position: absolute;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            border-radius: 16px;
+            cursor: move;
+            z-index: 10;
+            user-select: none;
+            display: flex;
+            flex-direction: column;
+            border: 2px solid transparent;
+            transition: box-shadow 0.2s, background-color 0.3s;
+            background-color: white;
+            resize: both;
+            overflow: hidden;
+            min-width: 150px;
+            min-height: 100px;
+            max-width: 800px;
+            max-height: 800px;
+        }
+
+        .canvas-item.selected {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+            z-index: 20;
+        }
+
+        .link-handle {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            width: 14px;
+            height: 14px;
+            background-color: #94a3b8;
+            border: 2px solid white;
+            border-radius: 50%;
+            cursor: crosshair;
+            z-index: 30;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: transform 0.1s, background-color 0.1s;
+        }
+        .link-handle:hover {
+            transform: scale(1.3);
+            background-color: #3b82f6;
+        }
+
+        /* Post-it */
+        .post-it { width: 200px; min-height: 150px; padding: 16px; background-color: #fef08a; }
+        .post-it-content { flex-grow: 1; outline: none; cursor: text; user-select: text; font-size: 14px; color: #000000; overflow-y: auto; word-break: break-word; }
+        .post-it-header { height: 16px; width: 100%; margin-bottom: 8px; border-radius: 4px; cursor: move; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-start; }
+        
+        /* Barra de formatação discreta */
+        .format-bar { gap: 8px; padding-left: 4px; }
+        .fmt-btn { cursor: pointer; opacity: 0.5; transition: opacity 0.2s; font-size: 12px; border: none; background: transparent; }
+        .fmt-btn:hover { opacity: 1; }
+
+        /* Caixa de Texto/Link */
+        .link-box {
+            width: 250px;
+            min-height: 60px;
+            padding: 12px;
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .link-icon-wrapper {
+            flex-shrink: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .link-box-content {
+            flex-grow: 1;
+            outline: none;
+            cursor: text;
+            user-select: text;
+            font-size: 14px;
+            color: #1e293b;
+            word-break: break-word;
+            overflow-y: auto;
+        }
+
+        /* Imagem */
+        .image-item {
+            padding: 8px;
+            background-color: white;
+            max-width: 300px;
+        }
+        .image-item img {
+            width: 100%;
+            height: auto;
+            border-radius: 4px;
+            pointer-events: none; 
+        }
+
+        /* Funcionalidade de Placeholder nos textos editáveis */
+        [contenteditable]:empty:before {
+            content: attr(data-placeholder);
+            color: currentColor;
+            opacity: 0.5;
+            pointer-events: none;
+            display: block;
+            cursor: text;
+        }
+
+        a[href] {
+            color: #2563eb;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+
+        #selectionBox {
+            position: absolute;
+            border: 1px solid #3b82f6;
+            background-color: rgba(59, 130, 246, 0.2);
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+        }
+
+        /* Input color customizado */
+        .custom-color-wrapper {
+            position: relative;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 1px solid rgba(0,0,0,0.1);
+            overflow: hidden;
+            cursor: pointer;
+            background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);
+        }
+        .custom-color-wrapper input[type="color"] {
+            position: absolute;
+            opacity: 0;
+            width: 200%;
+            height: 200%;
+            top: -50%;
+            left: -50%;
+            cursor: pointer;
+        }
+
+        /* --- MODO NOTURNO --- */
+        body.dark-mode { background-color: #0f172a; }
+        body.dark-mode #viewport { background-image: radial-gradient(circle, #334155 1px, transparent 1px); }
+        body.dark-mode .panel-ui { background-color: #1e293b; border-color: #334155; }
+        body.dark-mode .divider-ui { background-color: #334155; }
+        body.dark-mode .panel-ui button:not(.bg-yellow-300):not(.bg-blue-500) { color: #cbd5e1; }
+        body.dark-mode .panel-ui .hover\:bg-slate-100:hover { background-color: #334155; }
+        body.dark-mode .panel-ui .bg-slate-100 { background-color: #334155; color: #f8fafc; }
+        body.dark-mode .panel-ui .bg-slate-100:hover { background-color: #475569; }
+        body.dark-mode #zoomDisplay { color: #cbd5e1; }
+        body.dark-mode #hexInput { background-color: #0f172a; border-color: #475569; color: #f8fafc; }
+        body.dark-mode .canvas-item.link-box, body.dark-mode .canvas-item.image-item { background-color: #1e293b; color: #f8fafc; }
+        body.dark-mode .link-box-content { color: #f8fafc; }
+    </style>
+</head>
+<body>
+
+    <!-- Barra de Ferramentas -->
+    <div class="fixed top-4 left-4 z-50 bg-white p-2 rounded-2xl shadow-lg flex gap-2 border border-slate-200 items-center panel-ui">
+        
+        <button id="btnUndo" class="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors" title="Desfazer (Ctrl+Z)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3l-3 2.7"></path></svg>
+        </button>
+        <button id="btnRedo" class="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors" title="Refazer (Ctrl+Y)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 7v6h-6"></path><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path></svg>
+        </button>
+
+        <div class="w-px h-6 bg-slate-200 mx-1 divider-ui"></div>
+
+        <button id="btnAddNote" class="px-3 py-2 bg-yellow-300 hover:bg-yellow-400 text-slate-800 rounded-xl font-medium transition-colors flex items-center gap-2 text-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+            Nota
+        </button>
+        
+        <button id="btnAddLinkBox" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-medium transition-colors flex items-center gap-2 text-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+            Texto
+        </button>
+
+        <button id="btnAddImage" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-medium transition-colors flex items-center gap-2 text-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+            Imagem
+        </button>
+        <input type="file" id="imageInput" accept="image/*" class="hidden">
+        
+        <div class="w-px h-6 bg-slate-200 mx-1 divider-ui"></div>
+        
+        <div class="flex gap-1" id="colorPicker">
+            <button class="w-6 h-6 rounded-full border border-black/10 bg-[#fef08a]" data-color="#fef08a"></button>
+            <button class="w-6 h-6 rounded-full border border-black/10 bg-[#bbf7d0]" data-color="#bbf7d0"></button>
+            <button class="w-6 h-6 rounded-full border border-black/10 bg-[#bfdbfe]" data-color="#bfdbfe"></button>
+            <button class="w-6 h-6 rounded-full border border-black/10 bg-[#fbcfe8]" data-color="#fbcfe8"></button>
+            <div class="custom-color-wrapper" title="Cor personalizada">
+                <input type="color" id="customColorInput" value="#ff0000">
+            </div>
+            <input type="text" id="hexInput" class="w-16 h-6 text-xs font-mono border border-slate-300 rounded px-1 text-slate-600 outline-none focus:border-blue-500 uppercase" value="#FF0000" placeholder="HEX" maxlength="7" title="Digite o código HEX">
+        </div>
+
+        <div class="w-px h-6 bg-slate-200 mx-1 divider-ui"></div>
+
+        <button id="btnExport" class="px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-medium transition-colors flex items-center gap-2 text-sm" title="Salvar Imagem do Quadro">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Salvar
+        </button>
+    </div>
+
+    <!-- Controles de Zoom / Centralizar -->
+    <div class="fixed bottom-4 right-4 z-50 bg-white p-2 rounded-2xl shadow-lg flex items-center gap-1 border border-slate-200 panel-ui">
+        <button id="btnDarkMode" class="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors" title="Modo Noturno">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        </button>
+        <div class="w-px h-5 bg-slate-200 mx-1 divider-ui"></div>
+        <button id="btnCenter" class="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors" title="Centralizar nos itens">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9V5h4M19 9V5h-4M5 15v4h4M19 15v4h-4M12 12v.01"></path></svg>
+        </button>
+        <div class="w-px h-5 bg-slate-200 mx-1 divider-ui"></div>
+        <span id="zoomDisplay" class="text-sm font-medium text-slate-700 w-12 text-center select-none">100%</span>
+    </div>
+
+    <div id="viewport">
+        <div id="canvas">
+            <svg id="svgLayer"></svg>
+            <div id="selectionBox"></div>
+        </div>
+    </div>
+
+    <script>
+        const viewport = document.getElementById('viewport');
+        const canvas = document.getElementById('canvas');
+        const svgLayer = document.getElementById('svgLayer');
+        const selectionBox = document.getElementById('selectionBox');
+        
+        const btnAddNote = document.getElementById('btnAddNote');
+        const btnAddLinkBox = document.getElementById('btnAddLinkBox');
+        const btnAddImage = document.getElementById('btnAddImage');
+        const imageInput = document.getElementById('imageInput');
+        const colorBtns = document.querySelectorAll('#colorPicker button');
+        const customColorInput = document.getElementById('customColorInput');
+        const hexInput = document.getElementById('hexInput');
+        const btnUndo = document.getElementById('btnUndo');
+        const btnRedo = document.getElementById('btnRedo');
+        const zoomDisplay = document.getElementById('zoomDisplay');
+        const btnCenter = document.getElementById('btnCenter');
+        const btnDarkMode = document.getElementById('btnDarkMode');
+        const btnExport = document.getElementById('btnExport');
+
+        // Estado do Canvas
+        let scale = 1;
+        let panX = 0; let panY = 0;
+        let isSpacePressed = false;
+        let isPanning = false;
+        let panStartX, panStartY;
+
+        // Seleção, Drag e Clipboard
+        let isSelecting = false;
+        let selectionStart = { x: 0, y: 0 };
+        const selectedItems = new Set();
+        let isDragging = false;
+        let dragGroup = []; 
+        let dragMouseStart = { x: 0, y: 0 };
+        let clipboard = []; 
+
+        // Desenhando Linhas
+        let isDrawingLink = false;
+        let linkSourceId = null;
+        let tempLineElement = null;
+
+        let itemCount = 0;
+        const links = []; 
+
+        // --- Histórico (Undo / Redo) ---
+        let historyStack = [];
+        let historyIndex = -1;
+
+        function saveState() {
+            const itemsData = Array.from(document.querySelectorAll('.canvas-item')).map(el => {
+                let type = 'post-it';
+                if (el.classList.contains('link-box')) type = 'link';
+                if (el.classList.contains('image-item')) type = 'image';
+                
+                return {
+                    id: el.id,
+                    type: type,
+                    x: el.style.left,
+                    y: el.style.top,
+                    html: el.innerHTML,
+                    bg: el.getAttribute('data-bg-hex'), 
+                    color: el.querySelector('.post-it-content')?.style.color || ''
+                };
+            });
+
+            const state = {
+                items: itemsData,
+                links: JSON.parse(JSON.stringify(links)),
+                itemCount: itemCount
+            };
+            
+            if (historyIndex < historyStack.length - 1) {
+                historyStack = historyStack.slice(0, historyIndex + 1);
+            }
+            historyStack.push(state);
+            historyIndex++;
+        }
+
+        function loadState(state) {
+            if (!state) return;
+            
+            Array.from(canvas.children).forEach(child => {
+                if (child.id !== 'svgLayer' && child.id !== 'selectionBox') {
+                    child.remove();
+                }
+            });
+            
+            itemCount = state.itemCount;
+            links.length = 0;
+            state.links.forEach(l => links.push(l));
+
+            state.items.forEach(data => {
+                const el = document.createElement('div');
+                el.id = data.id;
+                el.className = `canvas-item ${data.type === 'post-it' ? 'post-it' : (data.type === 'link' ? 'link-box' : 'image-item')}`;
+                el.style.left = data.x;
+                el.style.top = data.y;
+                
+                if (data.bg) {
+                    el.style.backgroundColor = data.bg;
+                    el.setAttribute('data-bg-hex', data.bg); 
+                }
+                
+                el.innerHTML = data.html;
+                
+                if (data.color && el.querySelector('.post-it-content')) {
+                    el.querySelector('.post-it-content').style.color = data.color;
+                    el.querySelector('.post-it-header').style.color = data.color;
+                }
+                
+                canvas.appendChild(el);
+                bindItemEvents(el, data.type, data.id); 
+            });
+            drawLinks();
+        }
+
+        function undo() {
+            if (historyIndex > 0) {
+                historyIndex--;
+                loadState(historyStack[historyIndex]);
+                clearSelection();
+            }
+        }
+
+        function redo() {
+            if (historyIndex < historyStack.length - 1) {
+                historyIndex++;
+                loadState(historyStack[historyIndex]);
+                clearSelection();
+            }
+        }
+
+        btnUndo.addEventListener('click', undo);
+        btnRedo.addEventListener('click', redo);
+
+        // --- Ícones ---
+        const icons = {
+            globe: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`,
+            docs: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`,
+            sheets: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><rect x="8" y="12" width="8" height="6"></rect></svg>`,
+            youtube: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33 2.78 2.78 0 0 0 1.94 2c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.33 29 29 0 0 0-.46-5.33z"></path><polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"></polygon></svg>`,
+            instagram: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#db2777" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>`,
+            x: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2"><path d="M4 4l16 16M4 20l16-16"></path></svg>`,
+            tiktok: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"></path></svg>`
+        };
+
+        function getPlatformIcon(url) {
+            if (/docs\.google\.com\/document/i.test(url)) return icons.docs;
+            if (/docs\.google\.com\/spreadsheets|sheets\.google\.com/i.test(url)) return icons.sheets;
+            if (/youtube\.com|youtu\.be/i.test(url)) return icons.youtube;
+            if (/instagram\.com/i.test(url)) return icons.instagram;
+            if (/twitter\.com|x\.com/i.test(url)) return icons.x;
+            if (/tiktok\.com/i.test(url)) return icons.tiktok;
+            return icons.globe;
+        }
+
+        // --- Calcula o contraste para a cor do texto ---
+        function getContrastColor(hex) {
+            hex = hex.replace('#', '');
+            if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+            
+            const r = parseInt(hex.substr(0, 2), 16);
+            const g = parseInt(hex.substr(2, 2), 16);
+            const b = parseInt(hex.substr(4, 2), 16);
+            
+            const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+            return (yiq >= 128) ? '#000000' : '#ffffff';
+        }
+
+        function applyColorToElement(el, hexColor) {
+            const textColor = getContrastColor(hexColor);
+            el.style.backgroundColor = hexColor;
+            el.setAttribute('data-bg-hex', hexColor); 
+            
+            const content = el.querySelector('.post-it-content');
+            const header = el.querySelector('.post-it-header');
+            if (content) content.style.color = textColor;
+            if (header) header.style.color = textColor;
+        }
+
+        function applyColorToSelected(color) {
+            let changed = false;
+            selectedItems.forEach(el => {
+                if (el.classList.contains('post-it')) {
+                    applyColorToElement(el, color);
+                    changed = true;
+                }
+            });
+            if (changed) saveState();
+        }
+
+        // --- Helpers de Câmera ---
+        function getCanvasMouse(e) {
+            return { x: (e.clientX - panX) / scale, y: (e.clientY - panY) / scale };
+        }
+
+        function updateTransform() {
+            canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+            viewport.style.backgroundPosition = `${panX}px ${panY}px`;
+            viewport.style.backgroundSize = `${20 * scale}px ${20 * scale}px`;
+            zoomDisplay.innerText = Math.round(scale * 100) + '%';
+        }
+
+        // --- Teclado Global (Copiar, Colar, Deletar, Undo/Redo, Espaço e Ctrl+K) ---
+        window.addEventListener('keydown', (e) => {
+            const isInputActive = e.target.isContentEditable || e.target.tagName === 'INPUT';
+
+            if ((e.key === 'Delete' || e.key === 'Backspace') && !isInputActive) {
+                if (selectedItems.size > 0) {
+                    selectedItems.forEach(el => {
+                        el.remove();
+                        for (let i = links.length - 1; i >= 0; i--) {
+                            if (links[i].source === el.id || links[i].target === el.id) {
+                                links.splice(i, 1);
+                            }
+                        }
+                    });
+                    selectedItems.clear();
+                    drawLinks();
+                    saveState();
+                }
+            }
+
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !isInputActive) {
+                e.preventDefault();
+                if (e.shiftKey) redo(); else undo();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'y' && !isInputActive) {
+                e.preventDefault();
+                redo();
+            }
+
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && !isInputActive) {
+                e.preventDefault();
+                clipboard = Array.from(selectedItems).map(el => {
+                    let type = 'post-it';
+                    let extraData = null;
+                    if (el.classList.contains('link-box')) type = 'link';
+                    if (el.classList.contains('image-item')) {
+                        type = 'image';
+                        extraData = el.querySelector('img').src;
+                    }
+                    
+                    let contentHTML = '';
+                    if (type === 'post-it' || type === 'link') {
+                        const contentNode = el.querySelector('.post-it-content, .link-box-content');
+                        if (contentNode) contentHTML = contentNode.innerHTML;
+                    }
+
+                    return {
+                        type,
+                        x: parseFloat(el.style.left),
+                        y: parseFloat(el.style.top),
+                        bg: el.getAttribute('data-bg-hex') || '#fef08a',
+                        contentHTML,
+                        extraData
+                    };
+                });
+            }
+
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && !isInputActive) {
+                if (clipboard.length > 0) {
+                    e.preventDefault();
+                    clearSelection();
+                    
+                    clipboard.forEach(item => {
+                        item.x += 20; 
+                        item.y += 20;
+                        
+                        const newId = createItem(item.type, item.x, item.y, item.extraData, true);
+                        const newEl = document.getElementById(newId);
+                        
+                        if (item.type === 'post-it') {
+                            applyColorToElement(newEl, item.bg);
+                        }
+                        
+                        if (item.type === 'post-it' || item.type === 'link') {
+                            const contentNode = newEl.querySelector('.post-it-content, .link-box-content');
+                            if (contentNode && item.contentHTML) {
+                                contentNode.innerHTML = item.contentHTML;
+                            }
+                            if (item.type === 'link') updateBoxIcon(newEl);
+                        }
+                        
+                        addToSelection(newEl);
+                    });
+                    saveState();
+                }
+            }
+
+            if (e.code === 'Space' && !isInputActive) {
+                isSpacePressed = true;
+                document.body.classList.add('pan-mode');
+                e.preventDefault();
+            }
+
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                if (isInputActive) {
+                    e.preventDefault();
+                    const url = prompt("Cole o link aqui (inclua https://):");
+                    if (url) {
+                        document.execCommand('createLink', false, url);
+                        formatLinks(e.target);
+                        updateBoxIcon(e.target.closest('.link-box'));
+                    }
+                }
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                isSpacePressed = false;
+                document.body.classList.remove('pan-mode');
+            }
+        });
+
+        function formatLinks(container) {
+            container.querySelectorAll('a').forEach(a => {
+                a.setAttribute('target', '_blank');
+                a.style.color = '#2563eb';
+                a.style.textDecoration = 'underline';
+            });
+        }
+
+        // --- Mouse Events (Viewport & Drag) ---
+        viewport.addEventListener('mousedown', (e) => {
+            if (e.target !== viewport) return; 
+            
+            if (isSpacePressed) {
+                isPanning = true;
+                panStartX = e.clientX - panX;
+                panStartY = e.clientY - panY;
+            } else {
+                isSelecting = true;
+                selectionStart = getCanvasMouse(e);
+                selectionBox.style.display = 'block';
+                selectionBox.style.left = selectionStart.x + 'px';
+                selectionBox.style.top = selectionStart.y + 'px';
+                selectionBox.style.width = '0px';
+                selectionBox.style.height = '0px';
+                clearSelection();
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            const canvasMouse = getCanvasMouse(e);
+
+            if (isPanning) {
+                panX = e.clientX - panStartX;
+                panY = e.clientY - panStartY;
+                updateTransform();
+            } 
+            else if (isSelecting) {
+                const x = Math.min(canvasMouse.x, selectionStart.x);
+                const y = Math.min(canvasMouse.y, selectionStart.y);
+                const w = Math.abs(canvasMouse.x - selectionStart.x);
+                const h = Math.abs(canvasMouse.y - selectionStart.y);
+
+                selectionBox.style.left = x + 'px';
+                selectionBox.style.top = y + 'px';
+                selectionBox.style.width = w + 'px';
+                selectionBox.style.height = h + 'px';
+            }
+            else if (isDragging) {
+                const dx = canvasMouse.x - dragMouseStart.x;
+                const dy = canvasMouse.y - dragMouseStart.y;
+                
+                dragGroup.forEach(item => {
+                    item.el.style.left = `${item.startX + dx}px`;
+                    item.el.style.top = `${item.startY + dy}px`;
+                });
+                drawLinks();
+            }
+            else if (isDrawingLink && tempLineElement) {
+                const sourceEl = document.getElementById(linkSourceId);
+                const sX = parseFloat(sourceEl.style.left) + sourceEl.offsetWidth;
+                const sY = parseFloat(sourceEl.style.top) + 10; 
+                const path = getBezierPath(sX, sY, canvasMouse.x, canvasMouse.y);
+                tempLineElement.setAttribute('d', path);
+            }
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            let stateChanged = false;
+
+            if (isPanning) isPanning = false;
+            if (isDragging) {
+                isDragging = false;
+                stateChanged = true; 
+            }
+            
+            if (isSelecting) {
+                isSelecting = false;
+                selectionBox.style.display = 'none';
+                
+                const boxRect = {
+                    left: parseFloat(selectionBox.style.left),
+                    top: parseFloat(selectionBox.style.top),
+                    right: parseFloat(selectionBox.style.left) + parseFloat(selectionBox.style.width),
+                    bottom: parseFloat(selectionBox.style.top) + parseFloat(selectionBox.style.height)
+                };
+
+                document.querySelectorAll('.canvas-item').forEach(el => {
+                    const elRect = {
+                        left: parseFloat(el.style.left),
+                        top: parseFloat(el.style.top),
+                        right: parseFloat(el.style.left) + el.offsetWidth,
+                        bottom: parseFloat(el.style.top) + el.offsetHeight
+                    };
+
+                    if (boxRect.left < elRect.right && boxRect.right > elRect.left &&
+                        boxRect.top < elRect.bottom && boxRect.bottom > elRect.top) {
+                        addToSelection(el);
+                    }
+                });
+            }
+
+            if (isDrawingLink) {
+                isDrawingLink = false;
+                if (tempLineElement) tempLineElement.remove();
+                
+                const targetNode = document.elementFromPoint(e.clientX, e.clientY)?.closest('.canvas-item');
+                if (targetNode && targetNode.id !== linkSourceId) {
+                    links.push({ source: linkSourceId, target: targetNode.id });
+                    drawLinks();
+                    stateChanged = true; 
+                }
+                linkSourceId = null;
+            }
+
+            if (stateChanged) saveState();
+        });
+
+        // --- Zoom ---
+        viewport.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const xs = (e.clientX - panX) / scale;
+            const ys = (e.clientY - panY) / scale;
+            const delta = e.deltaY > 0 ? -1 : 1;
+            const zoomFactor = 1.1;
+
+            if (delta > 0) scale *= zoomFactor;
+            else scale /= zoomFactor;
+
+            scale = Math.min(Math.max(0.1, scale), 3);
+            panX = e.clientX - xs * scale;
+            panY = e.clientY - ys * scale;
+            updateTransform();
+        }, { passive: false });
+
+        btnCenter.addEventListener('click', () => {
+            const items = document.querySelectorAll('.canvas-item');
+            if (items.length === 0) {
+                panX = 0; panY = 0; scale = 1;
+                updateTransform();
+                return;
+            }
+
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            items.forEach(el => {
+                const x = parseFloat(el.style.left);
+                const y = parseFloat(el.style.top);
+                const w = el.offsetWidth;
+                const h = el.offsetHeight;
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x + w > maxX) maxX = x + w;
+                if (y + h > maxY) maxY = y + h;
+            });
+
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+
+            scale = 1; 
+            panX = (window.innerWidth / 2) - (centerX * scale);
+            panY = (window.innerHeight / 2) - (centerY * scale);
+            
+            updateTransform();
+        });
+
+        // --- Modo Noturno ---
+        btnDarkMode.addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+        });
+
+        // --- Salvar Imagem ---
+        btnExport.addEventListener('click', async () => {
+            const items = document.querySelectorAll('.canvas-item');
+            if (items.length === 0) return;
+
+            // Mede a área que a gente vai tirar a foto
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            items.forEach(el => {
+                const x = parseFloat(el.style.left);
+                const y = parseFloat(el.style.top);
+                const w = el.offsetWidth;
+                const h = el.offsetHeight;
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x + w > maxX) maxX = x + w;
+                if (y + h > maxY) maxY = y + h;
+            });
+
+            // Respiro pro quadro não ficar cortado
+            minX -= 60; minY -= 60;
+            maxX += 60; maxY += 60;
+
+            const w = maxX - minX;
+            const h = maxY - minY;
+
+            // Salva estado da câmera e vai pro centro das notas
+            const oldPanX = panX; const oldPanY = panY; const oldScale = scale;
+            panX = -minX; panY = -minY; scale = 1;
+            updateTransform();
+            clearSelection();
+
+            // Esconde UI das ferramentas pro print ficar limpo
+            document.querySelectorAll('.panel-ui, .link-handle, foreignObject').forEach(el => el.style.visibility = 'hidden');
+
+            try {
+                const isDark = document.body.classList.contains('dark-mode');
+                const canvasEl = await html2canvas(canvas, {
+                    width: w,
+                    height: h,
+                    backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+                    scale: 2 // Resolução top pra não borrar
+                });
+
+                // Baixa o PNG
+                const link = document.createElement('a');
+                link.download = 'meu-fluxorg.png';
+                link.href = canvasEl.toDataURL('image/png');
+                link.click();
+            } catch(e) {
+                console.error("Erro ao salvar:", e);
+                alert("Deu uma bronca na hora de gerar a imagem.");
+            } finally {
+                // Devolve as barras pro lugar
+                document.querySelectorAll('.panel-ui, .link-handle, foreignObject').forEach(el => el.style.visibility = 'visible');
+                panX = oldPanX; panY = oldPanY; scale = oldScale;
+                updateTransform();
+            }
+        });
+
+        function clearSelection() {
+            selectedItems.forEach(el => el.classList.remove('selected'));
+            selectedItems.clear();
+        }
+
+        function addToSelection(el) {
+            selectedItems.add(el);
+            el.classList.add('selected');
+        }
+
+        function updateBoxIcon(linkBox) {
+            if (!linkBox) return;
+            const content = linkBox.querySelector('.link-box-content');
+            const iconWrapper = linkBox.querySelector('.link-icon-wrapper');
+            
+            const anchor = content.querySelector('a');
+            const text = content.innerText.trim();
+            const urlToCheck = anchor ? anchor.href : text;
+
+            const isUrl = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/i.test(urlToCheck) || /https?:\/\//i.test(urlToCheck) || /www\./i.test(urlToCheck);
+
+            if (isUrl && urlToCheck.length > 4) {
+                iconWrapper.style.display = 'flex';
+                iconWrapper.innerHTML = getPlatformIcon(urlToCheck);
+            } else {
+                iconWrapper.style.display = 'none';
+            }
+        }
+
+        // --- Conecta Eventos aos Itens do Canvas ---
+        function bindItemEvents(el, type, itemId) {
+            const handle = el.querySelector('.link-handle');
+            if (handle) {
+                handle.addEventListener('mousedown', (e) => {
+                    e.stopPropagation(); 
+                    isDrawingLink = true;
+                    linkSourceId = itemId;
+                    
+                    tempLineElement = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    tempLineElement.setAttribute('stroke', '#3b82f6');
+                    tempLineElement.setAttribute('stroke-width', '3');
+                    tempLineElement.setAttribute('stroke-linecap', 'round');
+                    tempLineElement.setAttribute('fill', 'none');
+                    tempLineElement.setAttribute('stroke-dasharray', '5,5');
+                    svgLayer.appendChild(tempLineElement);
+                });
+            }
+
+            const formatBar = el.querySelector('.format-bar');
+            if (formatBar) {
+                formatBar.querySelectorAll('.fmt-btn').forEach(btn => {
+                    btn.addEventListener('mousedown', (e) => {
+                        e.preventDefault(); 
+                        const command = btn.getAttribute('data-cmd');
+                        document.execCommand(command, false, null);
+                    });
+                });
+            }
+
+            const contentNode = el.querySelector('.post-it-content, .link-box-content');
+            if (contentNode) {
+                contentNode.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        if (e.ctrlKey || e.metaKey) {
+                            e.preventDefault();
+                            const selection = window.getSelection();
+                            if (selection.rangeCount > 0) {
+                                const range = selection.getRangeAt(0);
+                                const br = document.createElement('br');
+                                range.deleteContents();
+                                range.insertNode(br);
+                                range.setStartAfter(br);
+                                range.setEndAfter(br);
+                                selection.removeAllRanges();
+                                selection.addRange(range);
+                            }
+                        } else if (!e.shiftKey) { 
+                            e.preventDefault();
+                            contentNode.blur(); 
+                        }
+                    }
+                });
+
+                contentNode.addEventListener('blur', () => {
+                    contentNode.contentEditable = 'false';
+                    window.getSelection().removeAllRanges();
+                    
+                    if (formatBar) formatBar.style.display = 'none';
+                    
+                    if(type === 'link') {
+                        const text = contentNode.innerText.trim();
+                        const isUrl = /^((https?:\/\/)|(www\.))?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/i.test(text);
+                        if (isUrl && !contentNode.querySelector('a')) {
+                            const href = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+                            contentNode.innerHTML = `<a href="${href}" target="_blank" style="color: #2563eb; text-decoration: underline;">${text}</a>`;
+                        }
+                        updateBoxIcon(el);
+                    }
+                    saveState();
+                });
+                
+                if (type === 'link') {
+                    contentNode.addEventListener('keyup', () => updateBoxIcon(el));
+                    contentNode.addEventListener('paste', () => setTimeout(() => {
+                        formatLinks(contentNode);
+                        updateBoxIcon(el);
+                    }, 50));
+                }
+
+                contentNode.addEventListener('click', (e) => {
+                    if (contentNode.contentEditable === 'false' && e.target.tagName === 'A') {
+                        window.open(e.target.href, '_blank');
+                    }
+                });
+
+                if (type === 'link') {
+                    el.addEventListener('dblclick', (e) => {
+                        if (e.target === contentNode || contentNode.contains(e.target)) {
+                            contentNode.contentEditable = 'true';
+                            setTimeout(() => {
+                                contentNode.focus();
+                                const range = document.createRange();
+                                range.selectNodeContents(contentNode);
+                                range.collapse(false);
+                                const sel = window.getSelection();
+                                sel.removeAllRanges();
+                                sel.addRange(range);
+                            }, 10);
+                        }
+                    });
+                }
+            }
+
+            el.addEventListener('mousedown', (e) => {
+                if (isSpacePressed) return;
+
+                const rect = el.getBoundingClientRect();
+                if (e.clientX > rect.right - 18 && e.clientY > rect.bottom - 18) return;
+                
+                if (e.target.tagName === 'A') return;
+
+                if (contentNode && (e.target === contentNode || contentNode.contains(e.target))) {
+                    if (type === 'post-it') {
+                        if (contentNode.contentEditable !== 'true') {
+                            contentNode.contentEditable = 'true';
+                            if (formatBar) formatBar.style.display = 'flex';
+                            setTimeout(() => contentNode.focus(), 0);
+                        }
+                        return; 
+                    } else if (type === 'link') {
+                        if (contentNode.contentEditable === 'true') {
+                            return; 
+                        }
+                    }
+                }
+
+                if (!e.shiftKey && !selectedItems.has(el)) clearSelection();
+                addToSelection(el);
+
+                isDragging = true;
+                dragMouseStart = getCanvasMouse(e);
+                dragGroup = Array.from(selectedItems).map(selEl => ({
+                    el: selEl,
+                    startX: parseFloat(selEl.style.left),
+                    startY: parseFloat(selEl.style.top)
+                }));
+
+                selectedItems.forEach(selEl => {
+                    if (selEl.nextSibling) canvas.appendChild(selEl);
+                });
+                e.stopPropagation();
+            });
+        }
+
+        // --- Criação de Elementos ---
+        function createItem(type, x, y, extraData = null, ignoreSave = false) {
+            itemCount++;
+            const itemId = `item-${itemCount}`;
+            const el = document.createElement('div');
+            el.id = itemId;
+            el.style.left = `${x}px`;
+            el.style.top = `${y}px`;
+            el.className = 'canvas-item';
+
+            const handleHTML = `<div class="link-handle" title="Clique e arraste para ligar a outro item"></div>`;
+
+            if (type === 'post-it') {
+                el.classList.add('post-it');
+                el.setAttribute('data-bg-hex', '#fef08a'); 
+                el.innerHTML = handleHTML + `
+                    <div class="post-it-header">
+                        <div class="format-bar" style="display: none;">
+                            <button class="fmt-btn" style="font-weight: bold;" data-cmd="bold" title="Negrito">B</button>
+                            <button class="fmt-btn" style="font-style: italic;" data-cmd="italic" title="Itálico">I</button>
+                            <button class="fmt-btn" style="text-decoration: underline;" data-cmd="underline" title="Sublinhado">U</button>
+                        </div>
+                    </div>
+                    <div class="post-it-content" contenteditable="true" spellcheck="false" data-placeholder="..."></div>
+                `;
+            } else if (type === 'link') {
+                el.classList.add('link-box');
+                el.innerHTML = handleHTML + `
+                    <div class="link-icon-wrapper">${icons.globe}</div>
+                    <div class="link-box-content" contenteditable="true" spellcheck="false" data-placeholder="..."></div>
+                `;
+            } else if (type === 'image') {
+                el.classList.add('image-item');
+                el.innerHTML = handleHTML + `<img src="${extraData}" alt="Imagem anexada">`;
+            }
+
+            canvas.appendChild(el);
+            bindItemEvents(el, type, itemId);
+
+            const contentNode = el.querySelector('.post-it-content, .link-box-content');
+            if (contentNode) {
+                const formatBar = el.querySelector('.format-bar');
+                if (formatBar) formatBar.style.display = 'flex';
+                contentNode.focus();
+                if (type === 'link') updateBoxIcon(el);
+            }
+
+            if(!ignoreSave) saveState();
+            return itemId;
+        }
+
+        // --- Toolbar Actions ---
+        function getCenterSpawnPos() {
+            return {
+                x: (-panX + window.innerWidth / 2 - 100) / scale,
+                y: (-panY + window.innerHeight / 2 - 75) / scale
+            };
+        }
+
+        btnAddNote.addEventListener('click', () => {
+            const pos = getCenterSpawnPos();
+            createItem('post-it', pos.x, pos.y);
+        });
+
+        btnAddLinkBox.addEventListener('click', () => {
+            const pos = getCenterSpawnPos();
+            createItem('link', pos.x, pos.y);
+        });
+
+        btnAddImage.addEventListener('click', () => imageInput.click());
+        
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const pos = getCenterSpawnPos();
+                    createItem('image', pos.x, pos.y, event.target.result);
+                };
+                reader.readAsDataURL(file);
+            }
+            e.target.value = ''; 
+        });
+
+        colorBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                applyColorToSelected(e.target.getAttribute('data-color'));
+            });
+        });
+
+        customColorInput.addEventListener('input', (e) => {
+            hexInput.value = e.target.value.toUpperCase();
+            applyColorToSelected(e.target.value);
+        });
+
+        hexInput.addEventListener('change', (e) => {
+            let val = e.target.value.trim();
+            if (!val.startsWith('#')) val = '#' + val;
+            if (/^#[0-9A-F]{6}$/i.test(val)) {
+                customColorInput.value = val;
+                applyColorToSelected(val);
+            } else {
+                hexInput.value = customColorInput.value.toUpperCase(); 
+            }
+        });
+
+        function getBezierPath(x1, y1, x2, y2) {
+            const controlOffset = Math.max(Math.abs(x2 - x1) / 2, 50);
+            return `M ${x1} ${y1} C ${x1 + controlOffset} ${y1}, ${x2 - controlOffset} ${y2}, ${x2} ${y2}`;
+        }
+
+        function drawLinks() {
+            svgLayer.innerHTML = '';
+            links.forEach((link, index) => {
+                const source = document.getElementById(link.source);
+                const target = document.getElementById(link.target);
+                
+                if (source && target) {
+                    const sX = parseFloat(source.style.left) + source.offsetWidth; 
+                    const sY = parseFloat(source.style.top) + 20; 
+                    const tX = parseFloat(target.style.left); 
+                    const tY = parseFloat(target.style.top) + (target.offsetHeight / 2);
+
+                    const pathString = getBezierPath(sX, sY, tX, tY);
+
+                    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+                    const hitPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    hitPath.setAttribute('d', pathString);
+                    hitPath.setAttribute('stroke', 'transparent');
+                    hitPath.setAttribute('stroke-width', '24');
+                    hitPath.setAttribute('fill', 'none');
+                    hitPath.style.pointerEvents = 'stroke';
+                    hitPath.style.cursor = 'pointer';
+
+                    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    pathEl.setAttribute('d', pathString);
+                    pathEl.setAttribute('stroke', '#94a3b8');
+                    pathEl.setAttribute('stroke-width', '3');
+                    pathEl.setAttribute('stroke-linecap', 'round');
+                    pathEl.setAttribute('fill', 'none');
+                    pathEl.style.pointerEvents = 'none';
+
+                    const midX = (sX + tX) / 2;
+                    const midY = (sY + tY) / 2;
+
+                    const foreignObj = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+                    foreignObj.setAttribute('x', midX - 12);
+                    foreignObj.setAttribute('y', midY - 12);
+                    foreignObj.setAttribute('width', 24);
+                    foreignObj.setAttribute('height', 24);
+                    foreignObj.style.display = 'none';
+                    foreignObj.style.pointerEvents = 'auto'; 
+
+                    foreignObj.innerHTML = `<button class="bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-lg cursor-pointer transition-transform hover:scale-110" title="Cortar ligação"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.48" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg></button>`;
+
+                    let hoverTimeout;
+                    
+                    g.addEventListener('mouseenter', () => {
+                        hoverTimeout = setTimeout(() => {
+                            pathEl.setAttribute('stroke', '#ef4444');
+                            pathEl.setAttribute('stroke-width', '4');
+                            foreignObj.style.display = 'block';
+                        }, 1000); 
+                    });
+
+                    g.addEventListener('mouseleave', () => {
+                        clearTimeout(hoverTimeout);
+                        pathEl.setAttribute('stroke', '#94a3b8');
+                        pathEl.setAttribute('stroke-width', '3');
+                        foreignObj.style.display = 'none';
+                    });
+
+                    foreignObj.addEventListener('mousedown', (e) => {
+                        e.stopPropagation(); 
+                        links.splice(index, 1);
+                        drawLinks();
+                        saveState();
+                    });
+
+                    g.appendChild(hitPath);
+                    g.appendChild(pathEl);
+                    g.appendChild(foreignObj);
+                    svgLayer.appendChild(g);
+                }
+            });
+        }
+
+        // --- Init ---
+        updateTransform();
+        createItem('post-it', getCenterSpawnPos().x, getCenterSpawnPos().y, null, true);
+        saveState(); 
+
+    </script>
+</body>
+</html>
